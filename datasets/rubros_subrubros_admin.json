@@ -1,0 +1,25 @@
+{
+    "Tendencias": {
+        "Tendencia nacional": "^t\\d+$",
+        "Tendencia global": "^tg\\d+$",
+        "Tendencia territorial": "^t\\d+_\\w+",
+        "Tendencia sectorial": "^ts_\\d+_\\w+"
+    },
+    "Riesgos": {
+        "Riesgo nacional": "^r\\d+$",
+        "Riesgo Territorial": "^r\\d+_\\w+"
+    },
+    "Oportunidades": {
+        "Oportunidad nacional": "^o\\d+$",
+        "Oportunidad territorial": "^o\\d+_\\w+"
+    },
+    "Eventos futuros": {
+        "Señal débil": "^S\\d+$",
+        "Carta salvaje": "^s\\d+$",
+        "Tecnología emergente": "^TE_\\d+$"
+    },
+    "Escenarios": {
+        "Escenarios de corto plazo": "^e\\d+_cp$",
+        "Escenarios de largoplazo": "^e\\d+_lp$"
+    }
+}
