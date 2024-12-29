@@ -1,6 +1,6 @@
-from playwright.sync_api import sync_playwright
+import asyncio
+from playwright.sync_api import async_playwright
 import re
-import random
 from datetime import datetime
 from dotenv import load_dotenv
 import os
@@ -40,55 +40,54 @@ class NavegadorObs():
         self.browser = None
         self.page = None
 
-    def iniciar_navegador(self):
+    async def iniciar_navegador(self):
         """
         Inicia el navegador y configura la página.
         """
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=False, slow_mo=self.timeout)
-        context = self.browser.new_context(viewport={"width": 1920, "height": 1080})
-        self.page = context.new_page()
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=False, slow_mo=self.timeout)
+        context = await self.browser.new_context(viewport={"width": 1920, "height": 1080})
+        self.page = await context.new_page()
 
         
-    def login(self):
+    async def login(self):
         """
         Realiza el inicio de sesión en la página.
         """
-        self.page.goto('https://observatorio.ceplan.gob.pe/')
-        self.page.evaluate("document.body.style.zoom='90%'")
+        await self.page.goto('https://observatorio.ceplan.gob.pe/')
+        await self.page.evaluate("document.body.style.zoom='90%'")
 
-        self.page.click('.icon-header.fa.fa-user.fa-3')
-        self.page.click('a[routerlink="login"]')
+        await self.page.click('.icon-header.fa.fa-user.fa-3')
+        await self.page.click('a[routerlink="login"]')
 
-        self.page.fill('input[name="email"]', self.email)
-        self.page.fill('input[name="pass"]', self.password)
-        self.page.click('.btn.btn-outline-dark.btn-secure')
+        await self.page.fill('input[name="email"]', self.email)
+        await self.page.fill('input[name="pass"]', self.password)
+        await self.page.click('.btn.btn-outline-dark.btn-secure')
 
-    def volver_a_inicio(self):
+    async def volver_a_inicio(self):
         """
         Navega de vuelta al panel de administrador
         """
-        self.page.click('i.icon-header.fa.fa-user.fa-3')
-        self.page.wait_for_selector('a[href="/adm/tendencia"]')
-        self.page.click('a[href="/adm/tendencia"]')
+        await self.page.click('i.icon-header.fa.fa-user.fa-3')
+        await self.page.wait_for_selector('a[href="/adm/tendencia"]')
+        await self.page.click('a[href="/adm/tendencia"]')
     
-    def cerrar_navegador(self):
+    async def cerrar_navegador(self):
         """
         Cierra el navegador y libera los recursos.
         """
         if self.browser:
-            self.browser.close()
+            await self.browser.close()
         if self.playwright:
-            self.playwright.stop()
+            await self.playwright.stop()
 
 
-    def identificar_rubro(self, codigo_ficha):
+    async def identificar_rubro(self, codigo_ficha):
         """
         Selecciona automáticamente el rubro y subrubro basándose en el código de ficha,
         y abre la ficha deseada.
         
         Args:
-            self.page: Página de Playwright.
             codigo_ficha (str): Código de la ficha que se desea abrir.
         
         Raises:
@@ -115,15 +114,15 @@ class NavegadorObs():
         print(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
 
         # Seleccionar el rubro
-        self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
-        self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+        await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
+        await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
 
         # Seleccionar el subrubro
-        self.page.wait_for_selector('a.col-sm-3.btn-org')
-        self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
+        await self.page.wait_for_selector('a.col-sm-3.btn-org')
+        await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
 
 
-    def seleccionar_icono(self, codigo_ficha, orden):
+    async def seleccionar_icono(self, codigo_ficha, orden):
         """
         Selecciona un ícono dentro de una fila específica basada en el código de la ficha y el índice.
 
@@ -140,16 +139,16 @@ class NavegadorObs():
         Raises:
             ValueError: Si no se encuentra la ficha con el código proporcionado.
         """
-        self.page.wait_for_selector('tr.tbody-detail')  # Esperar a que las filas estén visibles
-        ficha_element = self.page.locator(f'tr.tbody-detail:has-text("{codigo_ficha}") a.a-icon').nth(orden)
+        await self.page.wait_for_selector('tr.tbody-detail')  # Esperar a que las filas estén visibles
+        ficha_element = await self.page.locator(f'tr.tbody-detail:has-text("{codigo_ficha}") a.a-icon').nth(orden)
         
         if ficha_element.count() == 0:
             raise ValueError(f"No se encontró la ficha con código: {codigo_ficha}")
         
-        ficha_element.click()
+        await ficha_element.click()
 
     
-    def recopilar_estado_filas(self, rows):
+    async def recopilar_estado_filas(self, rows):
         """
         Recopila el estado de las filas en la tabla de acuerdo a si están activas o inactivas.
 
@@ -159,14 +158,14 @@ class NavegadorObs():
         Returns:
             list: Lista de booleanos donde True significa que la casilla está activa y False que está inactiva.
         """
-        row_count = rows.count()
+        row_count = await rows.count()
         row_status = []
 
         # Paso 1: Recopilar el estado de cada fila
         for index in range(row_count):
             label_locator = rows.nth(index).locator('td.text-center div.label-inactive, td.text-center div.label-active')
-            if label_locator.is_visible():
-                label = label_locator.inner_text()
+            if await label_locator.is_visible():
+                label = await label_locator.inner_text()
                 row_status.append(label.strip() == "ACTIVO")
             else:
                 row_status.append(False)
@@ -179,25 +178,23 @@ class WriterObs(NavegadorObs):
     def __init__(self, timeout):
         super().__init__(timeout)
 
-    
-    def llenar_campo(self, selector, valor, click = False):
-        self.page.wait_for_selector(selector, state='visible')
-        self.page.locator(selector).scroll_into_view_if_needed()
+    async def llenar_campo(self, selector, valor, click=False):
+        await self.page.wait_for_selector(selector, state='visible')
+        await self.page.locator(selector).scroll_into_view_if_needed()
         # Si se debe hacer clic en el campo antes de llenarlo
         if click:
-            self.page.locator(selector).click()
-            self.page.wait_for_timeout(self.timeout)
-        self.page.fill(selector, str(valor))
-        self.page.wait_for_timeout(self.timeout)
-    
-    def click_selector(self, selector):
-        self.page.wait_for_selector(selector)
-        self.page.locator(selector).scroll_into_view_if_needed()
-        self.page.locator(selector).click()
-        self.page.wait_for_timeout(self.timeout)
+            await self.page.locator(selector).click()
+            await self.page.wait_for_timeout(self.timeout)
+        await self.page.fill(selector, str(valor))
+        await self.page.wait_for_timeout(self.timeout)
 
+    async def click_selector(self, selector):
+        await self.page.wait_for_selector(selector)
+        await self.page.locator(selector).scroll_into_view_if_needed()
+        await self.page.locator(selector).click()
+        await self.page.wait_for_timeout(self.timeout)
 
-    def desactivar_casillas_activadas(self, rows, desactivar=True):
+    async def desactivar_casillas_activadas(self, rows, desactivar=True):
         """
         Desactiva las casillas activadas según el parámetro 'desactivar'.
 
@@ -208,53 +205,53 @@ class WriterObs(NavegadorObs):
         Returns:
             None
         """
-        row_status = self.recopilar_estado_filas(rows)
+        row_status = await self.recopilar_estado_filas(rows)
 
         # Paso 2: Desactivar las casillas según el parámetro 'desactivar'
         for index, is_active in enumerate(row_status):
             if (desactivar and is_active) or (not desactivar and not is_active):
                 action = "Desactivando" if desactivar else "Activando"
                 pencil_icon = rows.nth(index).locator('a.a-icon i.fa-pencil')
-                pencil_icon.scroll_into_view_if_needed()
-                self.page.wait_for_timeout(self.timeout / 3)
+                await pencil_icon.scroll_into_view_if_needed()
+                await self.page.wait_for_timeout(self.timeout / 3)
 
-                if pencil_icon.is_visible():
+                if await pencil_icon.is_visible():
                     try:
-                        pencil_icon.click()  # Aquí se hace clic en el lápiz
-                        self.page.evaluate('document.querySelector("#switch1").click()')
+                        await pencil_icon.click()  # Aquí se hace clic en el lápiz
+                        await self.page.evaluate('document.querySelector("#switch1").click()')
 
                         # Hacer hover sobre el botón y luego clic (mejora la consistencia)
                         save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
-                        save_button.hover()  # Hover sobre el botón
-                        self.page.click('button.btn.btn-outline-primary.btn-block')
-                        self.page.wait_for_timeout(self.timeout / 3)
+                        await save_button.hover()  # Hover sobre el botón
+                        await self.page.click('button.btn.btn-outline-primary.btn-block')
+                        await self.page.wait_for_timeout(self.timeout / 3)
 
                         # Esperar a que la tabla se recargue completamente antes de continuar
-                        self.page.wait_for_selector('tr.tbody-detail', state='visible')
+                        await self.page.wait_for_selector('tr.tbody-detail', state='visible')
                     except Exception as e:
                         print(f"Error al procesar la fila {index + 1}: {e}")
                 else:
                     try:
                         print(f"Lápiz de la fila {index + 1} no es visible, intentando alternativa")
-                        self.page.wait_for_timeout(30)
+                        await self.page.wait_for_timeout(30)
 
                         # Hacer click en el lápiz con js
-                        self.page.evaluate('''var pencil = document.querySelector('a.a-icon i.fa-pencil');
+                        await self.page.evaluate('''var pencil = document.querySelector('a.a-icon i.fa-pencil');
                                             if (pencil) {
                                                 pencil.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                                 pencil.click();
                                             }''')
 
                         # Cambiar el estado del switch usando JavaScript
-                        self.page.evaluate('document.querySelector("#switch1").click()')
+                        await self.page.evaluate('document.querySelector("#switch1").click()')
 
                         # Hacer hover sobre el botón y luego clic
                         save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
-                        save_button.hover()  # Hover sobre el botón
-                        self.page.click('button.btn.btn-outline-primary.btn-block')
+                        await save_button.hover()  # Hover sobre el botón
+                        await self.page.click('button.btn.btn-outline-primary.btn-block')
 
                         # Esperar a que la tabla se recargue completamente antes de continuar
-                        self.page.wait_for_selector('tr.tbody-detail', state='visible')
+                        await self.page.wait_for_selector('tr.tbody-detail', state='visible')
                         print(f"Fila {index + 1} ha sido procesada por el método alternativo.")
                     except Exception as e:
                         print(f"No se pudo hacer clic en el lápiz de la fila {index + 1}")
@@ -263,7 +260,7 @@ class WriterObs(NavegadorObs):
         
             
          ################ INSERTAR TEXTO ACTUALIZADO ##################
-    def actualizar_sumilla(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
+    async def actualizar_sumilla(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
         """
         Actualiza la sumilla de una ficha y modifica la fecha de actualización en la interfaz.
 
@@ -278,32 +275,32 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre algún problema al insertar la fecha de actualización.
         """
         # Seleccionar el ícono del lápiz (orden 4) para editar toda la ficha
-        self.seleccionar_icono(self, codigo_ficha, 4)
+        await self.seleccionar_icono(self, codigo_ficha, 4)
 
         # Obtener el primer párrafo del texto
         primer_parrafo = texto_con_hipervínculos.split('\n')[0]
         
         # Rellenar el campo de texto con el primer párrafo
-        self.llenar_campo(self, 'textarea[formcontrolname="summary"]', primer_parrafo)
+        await self.llenar_campo(self, 'textarea[formcontrolname="summary"]', primer_parrafo)
 
         # Seleccionar la fecha de hoy
         today = datetime.today().strftime('%Y-%m-%d')  # Cambiar el formato a YYYY-MM-DD
 
         try:
             # Rellenar el campo de la fecha
-            self.llenar_campo('input[placeholder="Actualización"]', today, timeout, click=True)
+            await self.llenar_campo('input[placeholder="Actualización"]', today, timeout, click=True)
         except Exception as e:
             print(f"No se insertó la fecha, por favor revisar: {e}")
 
 
         # Guardar los cambios
         #self.page.evaluate('document.querySelector("#switch1").click()')
-        self.page.click('button.btn.btn-outline-primary.btn-block')
+        await self.page.click('button.btn.btn-outline-primary.btn-block')
         print("Se actualizó la sumilla y fecha de actualización")
 
 
 
-    def actualizar_texto(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
+    async def actualizar_texto(self, codigo_ficha, texto_con_hipervínculos):
         """
         Actualiza el texto asociado a una ficha, eliminando el contenido previo y 
         guardando el nuevo contenido procesado.
@@ -319,30 +316,30 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre algún error al interactuar con los elementos de la página.
         """
         # Seleccionar el ícono de texto (orden 0)
-        self.seleccionar_icono(codigo_ficha, 0)
+        await self.seleccionar_icono(codigo_ficha, 0)
 
         ### Paso 1: Reemplazar sección anterior
         # Darle click al lápiz
         try:
-            self.click_selector('i.fa-pencil')
+            await self.click_selector('i.fa-pencil')
             # Apagar la subsección y guardar
-            self.page.evaluate('document.querySelector("#switch1").click()')
-            self.click_selector('button.btn.btn-outline-primary.btn-block')
+            await self.page.evaluate('document.querySelector("#switch1").click()')
+            await self.click_selector('button.btn.btn-outline-primary.btn-block')
         except Exception:
             # Si no hay una sección creada para borrar, se ignora este paso
             pass
 
         # Crear nueva subsección
-        self.click_selector('a.btn-add')
+        await self.click_selector('a.btn-add')
 
         # Colocar orden 1 y guardar
-        self.llenar_campo('input[formcontrolname="order"]', str("1"))
-        self.page.evaluate('document.querySelector("#switch1").click()')
-        self.click_selector('button.btn.btn-outline-primary.btn-block')
-        self.page.wait_for_timeout(self.timeout*2)
+        await self.llenar_campo('input[formcontrolname="order"]', str("1"))
+        await self.page.evaluate('document.querySelector("#switch1").click()')
+        await self.click_selector('button.btn.btn-outline-primary.btn-block')
+        await self.page.wait_for_timeout(self.timeout*2)
 
         # Darle click a las subsecciones
-        self.click_selector('i.fa-list')
+        await self.click_selector('i.fa-list')
         
 
         ### Paso 2: Agregar el nuevo contenido
@@ -350,12 +347,12 @@ class WriterObs(NavegadorObs):
         texto_sin_primer_parrafo = "\n".join(texto_con_hipervínculos.split("\n")[1:])
         
         # Darle click a "Agregar Bloque"
-        self.page.wait_for_selector('a.btn-add')
-        self.page.locator("a.btn-add").nth(0).click() 
+        await self.page.wait_for_selector('a.btn-add')
+        await self.page.locator("a.btn-add").nth(0).click() 
 
         try:
-            self.llenar_campo('textarea[formcontrolname="textbox"]', texto_sin_primer_parrafo)
-            self.page.wait_for_timeout(self.timeout*3)
+            await self.llenar_campo('textarea[formcontrolname="textbox"]', texto_sin_primer_parrafo)
+            await self.page.wait_for_timeout(self.timeout*3)
 
             # Esta parte me la dio Claude, he preferido dejarla así porque me tomó mucho encontrar un método
             dialog_appeared = False
@@ -368,15 +365,15 @@ class WriterObs(NavegadorObs):
                 
             # Registrar el event listener para diálogos
             try:
-                self.page.on("dialog", handle_dialog)
+                await self.page.on("dialog", handle_dialog)
             except Exception as e:
                 print("Verificar si se aceptó el diálogo")
 
             # Hacer clic en el botón
-            self.click_selector('button.btn.btn-outline-primary.btn-block')
+            await self.click_selector('button.btn.btn-outline-primary.btn-block')
                     
             # Esperar un poco para asegurar que el diálogo sea manejado
-            self.page.wait_for_timeout(self.timeout*3)
+            await self.page.wait_for_timeout(self.timeout*3)
             print("Se actualizó el texto de la ficha")
 
         except Exception as e:
@@ -400,18 +397,17 @@ class WriterObs(NavegadorObs):
         finally:
             # Mantener el navegador abierto si algo falla
             #input("Presiona Enter para cerrar el navegador...")
-            self.page.remove_listener("dialog", handle_dialog)
+            await self.page.remove_listener("dialog", handle_dialog)
 
 
 
         ################## MANEJO DE GRÁFICOS ####################
-    def actualizar_gráficos(self, codigo_ficha, resultado, desactivar=True):
+    async def actualizar_gráficos(self, codigo_ficha, resultado, desactivar=True):
         """
         Desactiva los gráficos existentes, crea nuevas casillas con los datos proporcionados,
         y guarda los cambios.
 
         Args:
-            self.page (self.page): Página de Playwright.
             codigo_ficha (str): Código de la ficha a procesar.
             resultado (list): Lista de listas con los detalles de cada gráfico. Contiene [orden, numeración, título, nota].
             desactivar (bool, optional): Si es True, desactiva los gráficos. Si es False, los sobreescribe (default: True).
@@ -421,49 +417,49 @@ class WriterObs(NavegadorObs):
         """
 
         # Seleccionar el ícono de gráficos (orden 1)
-        self.seleccionar_icono(codigo_ficha, 1)
+        await self.seleccionar_icono(codigo_ficha, 1)
 
         # Obtener número de gráficos
-        self.page.wait_for_selector('tr.tbody-detail')
-        rows = self.page.locator('tr.tbody-detail')
+        await self.page.wait_for_selector('tr.tbody-detail')
+        rows = await self.page.locator('tr.tbody-detail')
         row_count = rows.count()
         
         # Paso 1: Usar la función desactivar_casillas 
-        self.desactivar_casillas_activadas(rows, desactivar)
+        await self.desactivar_casillas_activadas(rows, desactivar)
 
         # Paso 2: Procesar cada entrada en resultado
         for item in resultado:
             # Crear nueva casilla
-            self.page.wait_for_selector('a.btn-add i.fa-plus', state='visible')
-            self.page.locator('a.btn-add').click()
+            await self.page.wait_for_selector('a.btn-add i.fa-plus', state='visible')
+            await self.page.locator('a.btn-add').click()
 
             # Seleccionar Frame Datawrapper
-            self.page.wait_for_selector('select[formcontrolname="idgraphictype"]', state='visible')
-            self.page.select_option('select[formcontrolname="idgraphictype"]', value="12")
+            await self.page.wait_for_selector('select[formcontrolname="idgraphictype"]', state='visible')
+            await self.page.select_option('select[formcontrolname="idgraphictype"]', value="12")
 
             # Desempaquetar los elementos de la lista
             orden, numeracion, titulo, nota = item
 
             # Llenar los campos
-            self.llenar_campo('input[formcontrolname="order"]', str(orden))
-            self.llenar_campo('input[formcontrolname="numeration"]', numeracion)
-            self.llenar_campo('input[formcontrolname="title"]', titulo)
-            self.llenar_campo('textarea[formcontrolname="note"]', nota)
+            await self.llenar_campo('input[formcontrolname="order"]', str(orden))
+            await self.llenar_campo('input[formcontrolname="numeration"]', numeracion)
+            await self.llenar_campo('input[formcontrolname="title"]', titulo)
+            await self.llenar_campo('textarea[formcontrolname="note"]', nota)
 
             # Activar el switch usando JavaScript
-            self.page.evaluate('document.querySelector("#switch1").click()')
+            await self.page.evaluate('document.querySelector("#switch1").click()')
 
             # Guardar la casilla
-            self.click_selector('button.btn.btn-outline-primary.btn-block')
+            await self.click_selector('button.btn.btn-outline-primary.btn-block')
 
             # Esperar a que se recargue la tabla antes de procesar la siguiente entrada
-            self.page.wait_for_selector('tr.tbody-detail', state='visible')
+            await self.page.wait_for_selector('tr.tbody-detail', state='visible')
         print("Se actualizaron los datos de los gráficos")
 
 
 
         ################## MANEJO DE REFERENCIAS ####################
-    def desactivar_referencias(self, codigo_ficha, desactivar=True, omitir_inicio=False):
+    async def desactivar_referencias(self, codigo_ficha, desactivar=True, omitir_inicio=False):
         """
         Desactiva las referencias en las filas de la tabla de referencias según el estado marcado como "ACTIVO".
 
@@ -478,17 +474,17 @@ class WriterObs(NavegadorObs):
 
         # Seleccionar el ícono de referencias (orden 2) para modificar switches
         if not omitir_inicio:
-            self.seleccionar_icono(codigo_ficha, 2)
+            await self.seleccionar_icono(codigo_ficha, 2)
 
         # Esperamos que las filas estén disponibles en la página
-        self.page.wait_for_selector('tr.tbody-detail')
-        rows = self.page.locator('tr.tbody-detail')
+        await self.page.wait_for_selector('tr.tbody-detail')
+        rows = await self.page.locator('tr.tbody-detail')
 
         # Llamamos a la función que recopila el estado y desactiva/activa según el parámetro
         self.desactivar_casillas_activadas(rows, desactivar)
 
 
-    def agregar_referencias(self, codigo_ficha, referencias_limpias, omitir_inicio=False):
+    async def agregar_referencias(self, codigo_ficha, referencias_limpias, omitir_inicio=False):
         """
         Agrega referencias y las procesa para hipervincularlas utilizando "Agregar Nuevo".
 
@@ -501,7 +497,7 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre un error al procesar las referencias o interactuar con la página.
         """
         if not omitir_inicio:
-            self.seleccionar_icono(codigo_ficha, 2)  # Seleccionar el ícono de referencias (orden 2)
+            await self.seleccionar_icono(codigo_ficha, 2)  # Seleccionar el ícono de referencias (orden 2)
 
         referencias = re.split(r'\n(?=\[\d+\])', referencias_limpias.strip())  # Dividir las referencias por líneas
         pattern = r'https?://[^\s]+(?:\s|$|\.)'  # Captura enlaces desde "http" hasta espacio, fin de línea o punto
@@ -509,22 +505,22 @@ class WriterObs(NavegadorObs):
         for referencia in referencias:
             try:
                 # Hacer clic en "Agregar Nuevo"
-                self.page.wait_for_selector('a.btn-add')
-                self.page.locator("a.btn-add").nth(1).click()
+                await self.page.wait_for_selector('a.btn-add')
+                await self.page.locator("a.btn-add").nth(1).click()
 
                 # Llenar el campo de contenido con la referencia
-                self.llenar_campo('textarea[formcontrolname="content"]', referencia.strip())
+                await self.llenar_campo('textarea[formcontrolname="content"]', referencia.strip())
 
                 # Obtener URL de la referencia
                 match = re.search(pattern, referencia)
                 url_value = match.group(0).rstrip('.') if match else ""  # Capturar URL limpia
 
                 # Insertar URL en el campo correspondiente
-                self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
+                await self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
 
                 # Guardar cambios
-                self.click_selector('button.btn.btn-outline-primary.btn-block')
-                self.page.wait_for_selector('tr.tbody-detail', state='visible')  # Esperar recarga
+                await self.click_selector('button.btn.btn-outline-primary.btn-block')
+                await self.page.wait_for_selector('tr.tbody-detail', state='visible')  # Esperar recarga
 
             except Exception as e:
                 print(f"Error al agregar referencia: {referencia[:30]}... -> {str(e)}")
@@ -533,9 +529,9 @@ class WriterObs(NavegadorObs):
 
        
 
-    def agregar_enlace_a_casillas(self, codigo_ficha, omitir_inicio=False):
+    async def agregar_enlace_a_casillas(self, codigo_ficha, omitir_inicio=False):
         """
-        FALTA QUE LO HAGA SOLAMENTE LOS QUE ESTÁN ACTIVOS, REVISAR
+        NO UTILZAR, OUTDATED
         Extrae el contenido de un campo de texto (textarea) de una referencia, procesa el enlace HTML y lo inserta en una casilla de URL.
 
         Args:
@@ -548,12 +544,12 @@ class WriterObs(NavegadorObs):
 
         # Si 'inicio' es False, seleccionar el ícono del libro (orden 2) para modificar referencias
         if not omitir_inicio:
-            self.seleccionar_icono(self.page, codigo_ficha, 2)
+            await self.seleccionar_icono(self.page, codigo_ficha, 2)
 
         # Esperar a que la tabla se cargue
-        self.page.wait_for_selector('tr.tbody-detail', state='visible')
+        await self.page.wait_for_selector('tr.tbody-detail', state='visible')
         rows = self.page.locator('tr.tbody-detail')
-        row_count = rows.count()
+        row_count = await rows.count()
 
         # Iterar sobre cada fila para extraer y actualizar HTML
         for index in range(row_count):
@@ -562,31 +558,29 @@ class WriterObs(NavegadorObs):
             pencil_icon = subrow.locator('a.a-icon i.fa-pencil')
             pencil_icon.scroll_into_view_if_needed()
                 
-            if pencil_icon.is_visible():
+            if await pencil_icon.is_visible():
                 try:
-                    pencil_icon.click()
+                    await pencil_icon.click()
                     # Extraer contenido del textarea
                     
                 except Exception as e:
                     print(f"Lápiz de la fila {index + 1} no es visible, intentando alternativa")
                     try:
-                        self.page.wait_for_timeout(30)
-
                         # Hacer click en el lápiz con js
-                        self.page.evaluate('''
+                        await self.page.evaluate('''
                             var pencil = document.querySelector('a.a-icon i.fa-pencil');
                             if (pencil) {
                                 pencil.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                 pencil.click();
                             }
                         ''')
-                        self.page.wait_for_selector('textarea[formcontrolname="content"]', state='visible')
                         print(f"Se logró seleccionar el lápiz de la fila {index + 1} mediante método alternativo.")
                     except Exception as e:
                         print(f"Error al procesar la fila, pero el lápiz sí era visible {index + 1}: {e}")
 
-                    self.page.wait_for_selector('textarea[formcontrolname="content"]', state='visible')
-                    textarea_value = self.page.locator('textarea[formcontrolname="content"]').input_value()
+                    # Extraer contenido del text area
+                    await self.page.wait_for_selector('textarea[formcontrolname="content"]', state='visible')
+                    textarea_value = await self.page.locator('textarea[formcontrolname="content"]').input_value()
                     pattern = r'http[^\s]+(?:\s|$|\.)'  # Captura desde http hasta un espacio, fin de línea o punto
                     match = re.search(pattern, textarea_value)
 
@@ -601,15 +595,15 @@ class WriterObs(NavegadorObs):
                     #print(f"URL extraída (fila {index + 1}): {url_value}")
 
                     # Insertar el contenido extraído en el campo de URL
-                    self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
+                    await self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
 
                     # Hacer hover sobre el botón y luego clic
                     save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
-                    save_button.hover()  # Hover sobre el botón
-                    self.page.click('button.btn.btn-outline-primary.btn-block')
+                    await save_button.hover()  # Hover sobre el botón
+                    await self.page.click('button.btn.btn-outline-primary.btn-block')
 
                     # Esperar a que la tabla se recargue antes de continuar
-                    self.page.wait_for_selector('tr.tbody-detail', state='visible')
+                    await self.page.wait_for_selector('tr.tbody-detail', state='visible')
                 except Exception as e:
                     print(f"Error al procesar la fila, pero el lápiz sí era visible {index + 1}: {e}")
         print("Se hipervincularon todas las referencias")
@@ -620,22 +614,24 @@ class ReaderObs(NavegadorObs):
         super().__init__(timeout)
         self.info_fichas = {}  # Diccionario para almacenar la información de las fichas
         self.fichas_con_problemas = []  # Lista para almacenar fichas con problemas
-        
-    
-    def seleccionar_rubro_y_subrubro(self, rubro, subrubro):
+
+    async def seleccionar_rubro_y_subrubro(self, rubro, subrubro):
         """
         Selecciona el rubro y subrubro en la interfaz.
         """
-        self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
-        self.page.click(f'li.btn-org:has-text("{rubro}")')
-        self.page.wait_for_selector('a.col-sm-3.btn-org')
-        self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro}")')
-        
+        await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
+        await self.page.click(f'li.btn-org:has-text("{rubro}")')
+        await self.page.wait_for_selector('a.col-sm-3.btn-org')
+        await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro}")')
 
-    ############################ FUNCIONES PRINCIPALES ###################################
-    def obtener_informacion_ficha(self, codigo, territorial=False):
+    # FUNCIONES PRINCIPALES
+    async def obtener_informacion_ficha(self, codigo, territorial=False):
         """
         Extrae información de una ficha abierta.
+
+        Args:
+            codigo (str): Código de la ficha.
+            territorial (bool): Indica si se debe extraer información territorial.
 
         Returns:
             dict: Información de la ficha.
@@ -653,9 +649,9 @@ class ReaderObs(NavegadorObs):
         self.info_fichas[codigo] = {}
         for campo, selector in campos.items():
             try:
-                self.page.wait_for_selector(selector)
-                self.page.locator(selector).scroll_into_view_if_needed()
-                self.info_fichas[codigo][campo] = self.page.locator(selector).input_value()
+                await self.page.wait_for_selector(selector)
+                await self.page.locator(selector).scroll_into_view_if_needed()
+                self.info_fichas[codigo][campo] = await self.page.locator(selector).input_value()
             except Exception as e:
                 print(f"Error al extraer '{campo}' de la ficha {codigo}: {e}")
                 self.info_fichas[codigo][campo] = "No disponible"
@@ -663,8 +659,8 @@ class ReaderObs(NavegadorObs):
         # Extraer "Estado"
         try:
             estado_selector = 'input[formcontrolname="status"]'
-            self.page.wait_for_selector(estado_selector)
-            estado = self.page.locator(estado_selector).is_checked()
+            await self.page.wait_for_selector(estado_selector)
+            estado = await self.page.locator(estado_selector).is_checked()
             self.info_fichas[codigo]["estado"] = "Activo" if estado else "Inactivo"
         except Exception as e:
             print(f"Error al extraer 'Estado': {e}")
@@ -673,21 +669,18 @@ class ReaderObs(NavegadorObs):
         # Extraer "Temática"
         try:
             tematica_selector = 'select[formcontrolname="idtematic"]'
-            self.page.wait_for_selector(tematica_selector)
-            numero = self.page.locator(tematica_selector).input_value()
+            await self.page.wait_for_selector(tematica_selector)
+            numero = await self.page.locator(tematica_selector).input_value()
             tematica = mapeo_tematica.get(numero, "Desconocido")
             self.info_fichas[codigo]["tematica"] = tematica
         except Exception as e:
-            print(f'No se pudo extraer la temática: {e}')
+            print(f"No se pudo extraer la temática: {e}")
             self.info_fichas[codigo]["tematica"] = "No disponible"
-        
+
         # Extraer "Departamentos" si es territorial
         if territorial:
             try:
-                # departamento_selector = 'select[formcontrolname="iddpto"] option:checked'
-                # self.page.wait_for_selector(departamento_selector).scroll_into_view_if_needed()
-                # Forzar extracción con JavaScript
-                departamento_value = self.page.evaluate(
+                departamento_value = await self.page.evaluate(
                     '''() => {
                         const selected = document.querySelector('select[formcontrolname="iddpto"] option:checked');
                         return selected ? selected.textContent.trim() : "No disponible";
@@ -699,7 +692,7 @@ class ReaderObs(NavegadorObs):
                 self.info_fichas[codigo]["departamento"] = "No disponible"
 
 
-    def procesar_ficha(self, codigo_ficha, territorial=False):
+    async def procesar_ficha(self, codigo_ficha, territorial=False):
         """
         Procesa una ficha individualmente.
         """
@@ -709,55 +702,54 @@ class ReaderObs(NavegadorObs):
             #     rubro, subrubro = self.identificar_rubro_y_subrubro(codigo_ficha)
             #     if not rubro or not subrubro:
             #         raise ValueError(f"No se encontró rubro/subrubro para {codigo_ficha}")
-            #     self.seleccionar_rubro_y_subrubro(self, rubro, subrubro)
+            #     await self.seleccionar_rubro_y_subrubro(self, rubro, subrubro)
 
             # Hacer clic en el lápiz para ver la metadata de la ficha (orden 4)
-            self.seleccionar_icono(codigo_ficha, 4) 
+            await self.seleccionar_icono(codigo_ficha, 4) 
 
             # Obtenemos y guardamos la info de una ficha
-            self.obtener_informacion_ficha(codigo_ficha, territorial=territorial)
+            await self.obtener_informacion_ficha(codigo_ficha, territorial=territorial)
             print(f"Ficha {codigo_ficha} procesada exitosamente.")
         except Exception as e:
             # Detección de errores
             self.fichas_con_problemas.append(codigo_ficha)
             print(f"Error procesando la ficha {codigo_ficha}: {e}")
         finally:
-            self.volver_a_inicio()
+            await self.volver_a_inicio()
 
 
-    def procesar_fichas(self, rubro, subrubro, territorial=False):
+    async def procesar_fichas(self, rubro, subrubro, territorial=False):
         """
         Procesa todas las fichas dentro de un rubro
         """
-
         try:
-            self.seleccionar_rubro_y_subrubro(rubro, subrubro)
-            self.page.wait_for_selector('tr.tbody-detail')
+            await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
+            await self.page.wait_for_selector('tr.tbody-detail')
             filas = self.page.locator('tr.tbody-detail')
-            total_filas = filas.count()
+            total_filas = await filas.count()
             print(f"Se extraerá información de {total_filas} fichas de {subrubro}")
 
             for i in range(total_filas):
                 try:
                     # Navegar a la página del subrubro
                     if subrubro != "Tendencia nacional":
-                        self.seleccionar_rubro_y_subrubro(rubro, subrubro)
-                    self.page.wait_for_selector('tr.tbody-detail')
+                        await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
+                    await self.page.wait_for_selector('tr.tbody-detail')
 
                     # Obtener el código de la ficha
                     fila = filas.nth(i)
-                    codigo_ficha = fila.locator('td').nth(1).inner_text().strip() 
+                    codigo_ficha = (await fila.locator('td').nth(1).inner_text()).strip()
                     #print(f"Este es el código_ficha obtenido: {codigo_ficha}")
 
                     # Procesar la ficha
-                    self.procesar_ficha(codigo_ficha, territorial=territorial)
+                    await self.procesar_ficha(codigo_ficha, territorial=territorial)
                 except Exception as e:
                     print(f"Error procesando fila {i}: {e}")
         except Exception as e:
             print(f"Error procesando todas las fichas del subrubro: {e}")
 
 
-    def guardar_resultados(self, rubro, subrubro):
+    async def guardar_resultados(self, rubro, subrubro):
         """
         Guarda los resultados en archivos JSON y TXT.
         """
