@@ -161,3 +161,4 @@ cython_debug/
 datasets/info_obs_prueba.json
 actualizacion/actualizar_ficha.py
 datasets/problemas_obs_prueba.txt
+scraping/test.ipynb

@@ -1,10 +1,12 @@
 import asyncio
-from playwright.sync_api import async_playwright
+from playwright.async_api import async_playwright
 import re
 from datetime import datetime
 from dotenv import load_dotenv
 import os
 import json
+from RPA_Ceplan.classes.text_formatting import TextFormatting
+
 
 # Credenciales
 load_dotenv()
@@ -12,12 +14,12 @@ EMAIL = os.getenv("EMAIL")
 PASS = os.getenv("PASS")
 
 # Variables globales
-ruta_dict = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros.json'
-with open(ruta_dict, "r", encoding = 'utf-8') as file:
+ruta_rubros_sub = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros.json'
+with open(ruta_rubros_sub, "r", encoding = 'utf-8') as file:
     rubros_subrubros = json.load(file)
 
-ruta_dict = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros_admin.json'
-with open(ruta_dict, "r", encoding = 'utf-8') as file:
+ruta_rubros_admin = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros_admin.json'
+with open(ruta_rubros_admin, "r", encoding = 'utf-8') as file:
     rubros_subrubros_admin = json.load(file)
 
 mapeo_tematica = {
@@ -32,9 +34,10 @@ mapeo_tematica = {
 
 
 class NavegadorObs():
-    def __init__(self, timeout):
+    def __init__(self, timeout, headless=False):
         self.email = EMAIL
         self.password = PASS
+        self.headless = headless
         self.timeout = timeout
         self.playwright = None
         self.browser = None
@@ -45,7 +48,7 @@ class NavegadorObs():
         Inicia el navegador y configura la página.
         """
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False, slow_mo=self.timeout)
+        self.browser = await self.playwright.chromium.launch(headless=self.headless, slow_mo=self.timeout)
         context = await self.browser.new_context(viewport={"width": 1920, "height": 1080})
         self.page = await context.new_page()
 
@@ -122,6 +125,7 @@ class NavegadorObs():
         await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
 
 
+
     async def seleccionar_icono(self, codigo_ficha, orden):
         """
         Selecciona un ícono dentro de una fila específica basada en el código de la ficha y el índice.
@@ -139,12 +143,19 @@ class NavegadorObs():
         Raises:
             ValueError: Si no se encuentra la ficha con el código proporcionado.
         """
-        await self.page.wait_for_selector('tr.tbody-detail')  # Esperar a que las filas estén visibles
-        ficha_element = await self.page.locator(f'tr.tbody-detail:has-text("{codigo_ficha}") a.a-icon').nth(orden)
+        # Esperar a que la tabla esté visible
+        await self.page.wait_for_selector('tr.tbody-detail')  
+
+        # Localiza el ícono basado en el código de la ficha y el índice
+        ficha_element = self.page.locator(f'tr.tbody-detail:has-text("{codigo_ficha}") a.a-icon').nth(orden)
         
-        if ficha_element.count() == 0:
+        # Verificar si el ícono está presente
+        count = await ficha_element.count()
+
+        if count == 0:
             raise ValueError(f"No se encontró la ficha con código: {codigo_ficha}")
-        
+    
+        # Hacer clic en el ícono
         await ficha_element.click()
 
     
@@ -175,8 +186,8 @@ class NavegadorObs():
 
 
 class WriterObs(NavegadorObs):
-    def __init__(self, timeout):
-        super().__init__(timeout)
+    def __init__(self, timeout, headless):
+        super().__init__(timeout, headless)
 
     async def llenar_campo(self, selector, valor, click=False):
         await self.page.wait_for_selector(selector, state='visible')
@@ -610,8 +621,8 @@ class WriterObs(NavegadorObs):
 
 
 class ReaderObs(NavegadorObs):
-    def __init__(self, timeout):
-        super().__init__(timeout)
+    def __init__(self, timeout, headless):
+        super().__init__(timeout, headless)
         self.info_fichas = {}  # Diccionario para almacenar la información de las fichas
         self.fichas_con_problemas = []  # Lista para almacenar fichas con problemas
 
@@ -621,8 +632,12 @@ class ReaderObs(NavegadorObs):
         """
         await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
         await self.page.click(f'li.btn-org:has-text("{rubro}")')
-        await self.page.wait_for_selector('a.col-sm-3.btn-org')
-        await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro}")')
+        if not subrubro in ["Señal débil", "Carta salvaje", "Tecnología emergente"]:
+            await self.page.wait_for_selector('a.col-sm-3.btn-org')
+            await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro}")')
+        else:
+            await self.page.wait_for_selector('a.btn-org[class="btn-org"]')
+            await self.page.click(f'a.btn-org:has-text("{subrubro}")')
 
     # FUNCIONES PRINCIPALES
     async def obtener_informacion_ficha(self, codigo, territorial=False):
@@ -637,9 +652,9 @@ class ReaderObs(NavegadorObs):
             dict: Información de la ficha.
         """
         campos = {
-            "codigo": 'input[placeholder="Código"]',
-            "titulo_corto": 'input[placeholder="Título corto"]',
-            "titulo_largo": 'input[placeholder="Título largo"]',
+            "codigo": 'input[formcontrolname="code"]',
+            "titulo_corto": 'input[formcontrolname="shorttitle"]',
+            "titulo_largo": 'input[formcontrolname="longtitle"]',
             "sumilla": 'textarea[formcontrolname="summary"]',
             "fecha_publicacion": 'input[formcontrolname="publication"]',
             "ultima_actualizacion": 'input[formcontrolname="lastUpdated"]',
@@ -746,38 +761,55 @@ class ReaderObs(NavegadorObs):
                 except Exception as e:
                     print(f"Error procesando fila {i}: {e}")
         except Exception as e:
-            print(f"Error procesando todas las fichas del subrubro: {e}")
+            print(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
 
 
-    async def guardar_resultados(self, rubro, subrubro):
+    async def guardar_resultados(self):
         """
-        Guarda los resultados en archivos JSON y TXT.
+        Actualiza los resultados en archivos JSON y TXT sin sobrescribirlos.
         """
-        # Calcula el path absoluto al directorio 'dicts'
+        # Calcula el path absoluto al directorio 'datasets'
         script_dir = os.path.dirname(os.path.abspath(__file__))  # Directorio del script
-        directorio_salida = os.path.join(script_dir, "dicts")  # Subcarpeta 'dicts'
+        directorio_salida = os.path.abspath(os.path.join(script_dir, "..", "datasets"))  # Subcarpeta 'datasets'
+
+        # Asegurarse de que el directorio exista
+        if not os.path.exists(directorio_salida):
+            os.makedirs(directorio_salida)
 
         # Construye las rutas completas para los archivos
-        #archivo_info = os.path.join(directorio_salida, f'info_{rubro}_{subrubro}.json')
-        #archivo_problemas = os.path.join(directorio_salida, f'problemas_{rubro}_{subrubro}.txt')
-
         archivo_info = os.path.join(directorio_salida, 'info_obs_prueba.json')
         archivo_problemas = os.path.join(directorio_salida, 'problemas_obs_prueba.txt')
 
+        # Leer y actualizar el archivo JSON con las fichas procesadas
+        datos_existentes = {}
+        if os.path.exists(archivo_info):
+            with open(archivo_info, 'r', encoding='utf-8') as json_file:
+                try:
+                    datos_existentes = json.load(json_file)
+                except json.JSONDecodeError:
+                    print(f"El archivo {archivo_info} está vacío o corrupto. Se sobrescribirá.")
 
-        # Guarda el JSON con la información de las fichas
+        # Actualizar los datos existentes con las nuevas fichas
+        datos_existentes.update(self.info_fichas)
         with open(archivo_info, 'w', encoding='utf-8') as json_file:
-            json.dump(self.info_fichas, json_file, indent=4, ensure_ascii=False)
-        print(f"Información guardada como {archivo_info}")
+            json.dump(datos_existentes, json_file, indent=4, ensure_ascii=False)
+        print(f"Información actualizada y guardada en {archivo_info}")
 
-        # Guarda la lista de problemas en un archivo de texto
+        # Leer y actualizar el archivo de problemas
+        problemas_existentes = []
+        if os.path.exists(archivo_problemas):
+            with open(archivo_problemas, 'r', encoding='utf-8') as txt_file:
+                problemas_existentes = txt_file.readlines()
+
+        # Agregar nuevos problemas al archivo existente
+        problemas_actualizados = problemas_existentes + [f"{problema}\n" for problema in self.fichas_con_problemas]
         with open(archivo_problemas, 'w', encoding='utf-8') as txt_file:
-            for problema in self.fichas_con_problemas:
-                txt_file.write(f"{problema}\n")
-        print(f"Problemas guardados como {archivo_problemas}")
+            txt_file.writelines(problemas_actualizados)
+        print(f"Problemas actualizados y guardados en {archivo_problemas}")
 
-        #self.info_fichas = {}
-        #self.fichas_con_problemas = []
+        # Limpiar los datos procesados en la sesión actual para evitar duplicados
+        self.info_fichas = {}
+        self.fichas_con_problemas = []
 
 
 

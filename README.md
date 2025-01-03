@@ -8,7 +8,8 @@ y la organización de sus datos.
 ```plaintext
 RPA_Ceplan/
 ├── classes/
-│   └── navegador_observatorio.py     # Clases base para navegar, leer y escribir
+│   └── navegador_observatorio.py     # Clases base para navegar, leer y escribir en el Observatorio
+│   └── text_fomatting.py             # Clase para procesar texto antes de subir al Observatorio
 │
 │
 ├── datasets/                        # Carpeta para guardar productos como diccionarios, configuraciones, etc.
@@ -19,8 +20,10 @@ RPA_Ceplan/
 │
 │
 ├── actualizacion/
-│   └── actualizar_fichas.py          # Script que usa la clase WriterObs para actualizar 
-│                                       el contenido de las fichas (solo administradores)
+│   └── hipervincular_referencias.py  # Script que usa la clase WriterObs para hipervincular referencias
+│   └── actualizar_fichas.py          # Script que usa la clase WriterObs para actualizar el contenido
+│                                       de las fichas (ambos scripts solo para administradores)
+│ 
 │
 ├── scraping/
 │   └── obtener_metadata.py           # Script que usa la clase ReaderObs para web scraping (solo administradores)
