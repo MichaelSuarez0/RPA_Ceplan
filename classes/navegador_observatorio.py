@@ -1,11 +1,12 @@
-import asyncio
 from playwright.async_api import async_playwright
 import re
 from datetime import datetime
 from dotenv import load_dotenv
 import os
 import json
-from RPA_Ceplan.classes.text_formatting import TextFormatting
+from RPA_Ceplan.classes.ficha import Ficha
+import logging
+
 
 
 # Credenciales
@@ -14,13 +15,27 @@ EMAIL = os.getenv("EMAIL")
 PASS = os.getenv("PASS")
 
 # Variables globales
-ruta_rubros_sub = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros.json'
-with open(ruta_rubros_sub, "r", encoding = 'utf-8') as file:
-    rubros_subrubros = json.load(file)
+script_dir = os.path.abspath(os.path.dirname(__file__))
+ruta_dict = os.path.join(script_dir, "..", "datasets", "rubros_subrubros.json")
+directorio_salida = os.path.abspath(os.path.join(script_dir, "..", "datasets"))  # Subcarpeta 'datasets'
+log_path = os.path.join(script_dir, "..", "logs", "obtener_metadata.log")
 
-ruta_rubros_admin = r'C:\Users\SALVADOR\OneDrive\CEPLAN\CeplanPythonCode\RPA_Ceplan\datasets\rubros_subrubros_admin.json'
-with open(ruta_rubros_admin, "r", encoding = 'utf-8') as file:
-    rubros_subrubros_admin = json.load(file)
+# Configuración básica del logging
+logging.basicConfig(
+    level=logging.INFO,  # Nivel de registro (INFO, DEBUG, WARNING, ERROR, CRITICAL)
+    format='%(asctime)s - %(levelname)s - %(message)s',  
+    handlers=[
+    logging.FileHandler(log_path, mode='a', encoding='utf-8'),  # Archivo en UTF-8
+    logging.StreamHandler()  # También mostrar logs en la consola
+    ]
+)
+
+#logging.ERROR("=" * 90) 
+
+ruta_dict_2 = os.path.join(script_dir, "..", "datasets", "rubros_subrubros_admin.json")
+with open(ruta_dict_2, "r", encoding = 'utf-8') as file:
+    rubros_subrubros_admin: dict = json.load(file)
+
 
 mapeo_tematica = {
         "1": "Social",
@@ -100,7 +115,7 @@ class NavegadorObs():
         rubro_encontrado = None
         subrubro_encontrado = None
         
-        for rubro, subrubros in rubros_subrubros.items():
+        for rubro, subrubros in rubros_subrubros_admin.items():
             for subrubro, patron in subrubros.items():
                 if re.match(patron, codigo_ficha):  # Compara el código de ficha con el patrón
                     rubro_encontrado = rubro
@@ -117,14 +132,37 @@ class NavegadorObs():
         print(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
 
         # Seleccionar el rubro
-        await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
-        await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+        try:
+            await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+            await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
 
-        # Seleccionar el subrubro
-        await self.page.wait_for_selector('a.col-sm-3.btn-org')
-        await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
+            # Seleccionar el subrubro
+            await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
+            await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
+        except TimeoutError:
+            try:
+                await self.page.reload(wait_until="networkidle")
 
+                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
 
+                # Seleccionar el subrubro
+                await self.page.wait_for_selector('a.col-sm-3.btn-org')
+                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")', timeout=10000)
+            except TimeoutError:
+                print("⚠️ Error persistente, limpiando caché y cookies...")
+                await self.page.context.clear_cookies()
+                await self.page.evaluate("caches.keys().then(keys => keys.forEach(key => caches.delete(key)))")
+
+                await self.page.reload(wait_until="networkidle")
+
+                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+
+                await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
+                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
+
+        
 
     async def seleccionar_icono(self, codigo_ficha, orden):
         """
@@ -269,7 +307,6 @@ class WriterObs(NavegadorObs):
 
     
         
-            
          ################ INSERTAR TEXTO ACTUALIZADO ##################
     async def actualizar_sumilla(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
         """
@@ -285,8 +322,8 @@ class WriterObs(NavegadorObs):
         Raises:
             Exception: Si ocurre algún problema al insertar la fecha de actualización.
         """
-        # Seleccionar el ícono del lápiz (orden 4) para editar toda la ficha
-        await self.seleccionar_icono(self, codigo_ficha, 4)
+        # Seleccionar el ícono del lápiz (orden 5) para editar toda la ficha
+        await self.seleccionar_icono(self, codigo_ficha, 5)
 
         # Obtener el primer párrafo del texto
         primer_parrafo = texto_con_hipervínculos.split('\n')[0]
@@ -326,8 +363,8 @@ class WriterObs(NavegadorObs):
         Raises:
             Exception: Si ocurre algún error al interactuar con los elementos de la página.
         """
-        # Seleccionar el ícono de texto (orden 0)
-        await self.seleccionar_icono(codigo_ficha, 0)
+        # Seleccionar el ícono de texto (orden 1)
+        await self.seleccionar_icono(codigo_ficha, 1)
 
         ### Paso 1: Reemplazar sección anterior
         # Darle click al lápiz
@@ -427,8 +464,8 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre un error al procesar las filas o al guardar los cambios de los gráficos.
         """
 
-        # Seleccionar el ícono de gráficos (orden 1)
-        await self.seleccionar_icono(codigo_ficha, 1)
+        # Seleccionar el ícono de gráficos (orden 2)
+        await self.seleccionar_icono(codigo_ficha, 2)
 
         # Obtener número de gráficos
         await self.page.wait_for_selector('tr.tbody-detail')
@@ -483,9 +520,9 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre un error al procesar los switches o interactuar con la página.
         """
 
-        # Seleccionar el ícono de referencias (orden 2) para modificar switches
+        # Seleccionar el ícono de referencias (orden 3) para modificar switches
         if not omitir_inicio:
-            await self.seleccionar_icono(codigo_ficha, 2)
+            await self.seleccionar_icono(codigo_ficha, 3)
 
         # Esperamos que las filas estén disponibles en la página
         await self.page.wait_for_selector('tr.tbody-detail')
@@ -508,7 +545,7 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre un error al procesar las referencias o interactuar con la página.
         """
         if not omitir_inicio:
-            await self.seleccionar_icono(codigo_ficha, 2)  # Seleccionar el ícono de referencias (orden 2)
+            await self.seleccionar_icono(codigo_ficha, 3)  # Seleccionar el ícono de referencias (orden 2)
 
         referencias = re.split(r'\n(?=\[\d+\])', referencias_limpias.strip())  # Dividir las referencias por líneas
         pattern = r'https?://[^\s]+(?:\s|$|\.)'  # Captura enlaces desde "http" hasta espacio, fin de línea o punto
@@ -555,7 +592,7 @@ class WriterObs(NavegadorObs):
 
         # Si 'inicio' es False, seleccionar el ícono del libro (orden 2) para modificar referencias
         if not omitir_inicio:
-            await self.seleccionar_icono(self.page, codigo_ficha, 2)
+            await self.seleccionar_icono(codigo_ficha, 3)
 
         # Esperar a que la tabla se cargue
         await self.page.wait_for_selector('tr.tbody-detail', state='visible')
@@ -567,7 +604,7 @@ class WriterObs(NavegadorObs):
             # Seleccionar la subfila y abrir el modal de edición
             subrow = rows.nth(index)
             pencil_icon = subrow.locator('a.a-icon i.fa-pencil')
-            pencil_icon.scroll_into_view_if_needed()
+            await pencil_icon.scroll_into_view_if_needed()
                 
             if await pencil_icon.is_visible():
                 try:
@@ -623,7 +660,7 @@ class WriterObs(NavegadorObs):
 class ReaderObs(NavegadorObs):
     def __init__(self, timeout, headless):
         super().__init__(timeout, headless)
-        self.info_fichas = {}  # Diccionario para almacenar la información de las fichas
+        self.info_fichas: dict[dict] = {}  # Lista de diccionarios para almacenar la información de las fichas
         self.fichas_con_problemas = []  # Lista para almacenar fichas con problemas
 
     async def seleccionar_rubro_y_subrubro(self, rubro, subrubro):
@@ -632,15 +669,13 @@ class ReaderObs(NavegadorObs):
         """
         await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]')
         await self.page.click(f'li.btn-org:has-text("{rubro}")')
-        if not subrubro in ["Señal débil", "Carta salvaje", "Tecnología emergente"]:
+        if not rubro in ["Megatendencias", "Fuerzas primarias"]:
             await self.page.wait_for_selector('a.col-sm-3.btn-org')
             await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro}")')
-        else:
-            await self.page.wait_for_selector('a.btn-org[class="btn-org"]')
-            await self.page.click(f'a.btn-org:has-text("{subrubro}")')
+
 
     # FUNCIONES PRINCIPALES
-    async def obtener_informacion_ficha(self, codigo, territorial=False):
+    async def scrapear_ficha(self, codigo: str, territorial=False):
         """
         Extrae información de una ficha abierta.
 
@@ -652,7 +687,6 @@ class ReaderObs(NavegadorObs):
             dict: Información de la ficha.
         """
         campos = {
-            "codigo": 'input[formcontrolname="code"]',
             "titulo_corto": 'input[formcontrolname="shorttitle"]',
             "titulo_largo": 'input[formcontrolname="longtitle"]',
             "sumilla": 'textarea[formcontrolname="summary"]',
@@ -661,25 +695,30 @@ class ReaderObs(NavegadorObs):
             "tags": 'input[formcontrolname="tags"]'
         }
 
-        self.info_fichas[codigo] = {}
+        temp_dict = {}
         for campo, selector in campos.items():
             try:
                 await self.page.wait_for_selector(selector)
                 await self.page.locator(selector).scroll_into_view_if_needed()
-                self.info_fichas[codigo][campo] = await self.page.locator(selector).input_value()
+                temp_dict[campo] = await self.page.locator(selector).input_value()
             except Exception as e:
-                print(f"Error al extraer '{campo}' de la ficha {codigo}: {e}")
-                self.info_fichas[codigo][campo] = "No disponible"
+                logging.error(f"Error al extraer '{campo}' de la ficha {codigo}: {e}")
+                temp_dict[campo] = None
+                await self.page.context.clear_cookies()
+                await self.page.evaluate("caches.keys().then(keys => keys.forEach(key => caches.delete(key)))")
+                await self.page.reload(wait_until="networkidle")
+            self.info_fichas[codigo] = temp_dict
+                
 
-        # Extraer "Estado"
-        try:
-            estado_selector = 'input[formcontrolname="status"]'
-            await self.page.wait_for_selector(estado_selector)
-            estado = await self.page.locator(estado_selector).is_checked()
-            self.info_fichas[codigo]["estado"] = "Activo" if estado else "Inactivo"
-        except Exception as e:
-            print(f"Error al extraer 'Estado': {e}")
-            self.info_fichas[codigo]["estado"] = "No disponible"
+        # #Extraer "Estado"
+        # try:
+        #     estado_selector = 'input[formcontrolname="status"]'
+        #     await self.page.wait_for_selector(estado_selector)
+        #     estado = await self.page.locator(estado_selector).is_checked()
+        #     self.info_fichas[codigo]["estado"] = "Activo" if estado else "Inactivo"
+        # except Exception as e:
+        #     print(f"Error al extraer 'Estado': {e}")
+        #     self.info_fichas[codigo]["estado"] = "No disponible"
 
         # Extraer "Temática"
         try:
@@ -707,7 +746,7 @@ class ReaderObs(NavegadorObs):
                 self.info_fichas[codigo]["departamento"] = "No disponible"
 
 
-    async def procesar_ficha(self, codigo_ficha, territorial=False):
+    async def obtener_datos(self, codigo_ficha, territorial=False):
         """
         Procesa una ficha individualmente.
         """
@@ -719,30 +758,32 @@ class ReaderObs(NavegadorObs):
             #         raise ValueError(f"No se encontró rubro/subrubro para {codigo_ficha}")
             #     await self.seleccionar_rubro_y_subrubro(self, rubro, subrubro)
 
-            # Hacer clic en el lápiz para ver la metadata de la ficha (orden 4)
-            await self.seleccionar_icono(codigo_ficha, 4) 
+            # Hacer clic en el lápiz para ver la metadata de la ficha (orden 5)
+            await self.seleccionar_icono(codigo_ficha, 5) 
 
             # Obtenemos y guardamos la info de una ficha
-            await self.obtener_informacion_ficha(codigo_ficha, territorial=territorial)
-            print(f"Ficha {codigo_ficha} procesada exitosamente.")
+            await self.scrapear_ficha(codigo_ficha, territorial=territorial)
+            logging.info(f"Ficha {codigo_ficha} procesada exitosamente.")
         except Exception as e:
             # Detección de errores
-            self.fichas_con_problemas.append(codigo_ficha)
-            print(f"Error procesando la ficha {codigo_ficha}: {e}")
+            logging.error(f"{codigo_ficha}: {e}")
+            await self.page.reload(wait_until="networkidle")
         finally:
             await self.volver_a_inicio()
 
 
-    async def procesar_fichas(self, rubro, subrubro, territorial=False):
+    async def scrapear_fichas(self, rubro, subrubro= None, territorial=False):
         """
         Procesa todas las fichas dentro de un rubro
         """
         try:
             await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
             await self.page.wait_for_selector('tr.tbody-detail')
+            await self.page.wait_for_timeout(500)
             filas = self.page.locator('tr.tbody-detail')
             total_filas = await filas.count()
-            print(f"Se extraerá información de {total_filas} fichas de {subrubro}")
+            if not rubro in ["Megatendencias", "Fuerzas primarias"]:
+                print(f"Se extraerá información de {total_filas} fichas de {subrubro}")
 
             for i in range(total_filas):
                 try:
@@ -757,9 +798,10 @@ class ReaderObs(NavegadorObs):
                     #print(f"Este es el código_ficha obtenido: {codigo_ficha}")
 
                     # Procesar la ficha
-                    await self.procesar_ficha(codigo_ficha, territorial=territorial)
+                    await self.obtener_datos(codigo_ficha, territorial=territorial)
                 except Exception as e:
                     print(f"Error procesando fila {i}: {e}")
+                    #await self.page.reload(wait_until="networkidle")
         except Exception as e:
             print(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
 
@@ -768,17 +810,8 @@ class ReaderObs(NavegadorObs):
         """
         Actualiza los resultados en archivos JSON y TXT sin sobrescribirlos.
         """
-        # Calcula el path absoluto al directorio 'datasets'
-        script_dir = os.path.dirname(os.path.abspath(__file__))  # Directorio del script
-        directorio_salida = os.path.abspath(os.path.join(script_dir, "..", "datasets"))  # Subcarpeta 'datasets'
-
-        # Asegurarse de que el directorio exista
-        if not os.path.exists(directorio_salida):
-            os.makedirs(directorio_salida)
-
         # Construye las rutas completas para los archivos
         archivo_info = os.path.join(directorio_salida, 'info_obs_prueba.json')
-        archivo_problemas = os.path.join(directorio_salida, 'problemas_obs_prueba.txt')
 
         # Leer y actualizar el archivo JSON con las fichas procesadas
         datos_existentes = {}
@@ -787,29 +820,16 @@ class ReaderObs(NavegadorObs):
                 try:
                     datos_existentes = json.load(json_file)
                 except json.JSONDecodeError:
-                    print(f"El archivo {archivo_info} está vacío o corrupto. Se sobrescribirá.")
+                    logging.error(f"El archivo {archivo_info} está vacío o corrupto. Se sobrescribirá.")
 
         # Actualizar los datos existentes con las nuevas fichas
         datos_existentes.update(self.info_fichas)
         with open(archivo_info, 'w', encoding='utf-8') as json_file:
             json.dump(datos_existentes, json_file, indent=4, ensure_ascii=False)
-        print(f"Información actualizada y guardada en {archivo_info}")
-
-        # Leer y actualizar el archivo de problemas
-        problemas_existentes = []
-        if os.path.exists(archivo_problemas):
-            with open(archivo_problemas, 'r', encoding='utf-8') as txt_file:
-                problemas_existentes = txt_file.readlines()
-
-        # Agregar nuevos problemas al archivo existente
-        problemas_actualizados = problemas_existentes + [f"{problema}\n" for problema in self.fichas_con_problemas]
-        with open(archivo_problemas, 'w', encoding='utf-8') as txt_file:
-            txt_file.writelines(problemas_actualizados)
-        print(f"Problemas actualizados y guardados en {archivo_problemas}")
+        logging.error(f"Información actualizada y guardada en {archivo_info}")
 
         # Limpiar los datos procesados en la sesión actual para evitar duplicados
         self.info_fichas = {}
-        self.fichas_con_problemas = []
 
 
 
