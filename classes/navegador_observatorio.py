@@ -4,10 +4,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import json
-from RPA_Ceplan.classes.ficha import Ficha
 import logging
-
-
+import random
 
 # Credenciales
 load_dotenv()
@@ -270,9 +268,9 @@ class WriterObs(NavegadorObs):
                         await self.page.evaluate('document.querySelector("#switch1").click()')
 
                         # Hacer hover sobre el botón y luego clic (mejora la consistencia)
-                        save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
+                        save_button = self.page.locator('button[type="submit"]')
                         await save_button.hover()  # Hover sobre el botón
-                        await self.page.click('button.btn.btn-outline-primary.btn-block')
+                        await self.page.click('button[type="submit"]')
                         await self.page.wait_for_timeout(self.timeout / 3)
 
                         # Esperar a que la tabla se recargue completamente antes de continuar
@@ -295,9 +293,9 @@ class WriterObs(NavegadorObs):
                         await self.page.evaluate('document.querySelector("#switch1").click()')
 
                         # Hacer hover sobre el botón y luego clic
-                        save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
+                        save_button = self.page.locator('button[type="submit"]')
                         await save_button.hover()  # Hover sobre el botón
-                        await self.page.click('button.btn.btn-outline-primary.btn-block')
+                        await self.page.click('button[type="submit"]')
 
                         # Esperar a que la tabla se recargue completamente antes de continuar
                         await self.page.wait_for_selector('tr.tbody-detail', state='visible')
@@ -323,27 +321,27 @@ class WriterObs(NavegadorObs):
             Exception: Si ocurre algún problema al insertar la fecha de actualización.
         """
         # Seleccionar el ícono del lápiz (orden 5) para editar toda la ficha
-        await self.seleccionar_icono(self, codigo_ficha, 5)
+        await self.seleccionar_icono(codigo_ficha, 5)
 
         # Obtener el primer párrafo del texto
         primer_parrafo = texto_con_hipervínculos.split('\n')[0]
         
         # Rellenar el campo de texto con el primer párrafo
-        await self.llenar_campo(self, 'textarea[formcontrolname="summary"]', primer_parrafo)
+        await self.llenar_campo('textarea[formcontrolname="summary"]', primer_parrafo)
 
         # Seleccionar la fecha de hoy
         today = datetime.today().strftime('%Y-%m-%d')  # Cambiar el formato a YYYY-MM-DD
 
         try:
             # Rellenar el campo de la fecha
-            await self.llenar_campo('input[placeholder="Actualización"]', today, timeout, click=True)
+            await self.llenar_campo('input[formcontrolname="lastUpdated"]', today, click=True)
         except Exception as e:
             print(f"No se insertó la fecha, por favor revisar: {e}")
 
 
         # Guardar los cambios
         #self.page.evaluate('document.querySelector("#switch1").click()')
-        await self.page.click('button.btn.btn-outline-primary.btn-block')
+        await self.page.click('button[type="submit"]')
         print("Se actualizó la sumilla y fecha de actualización")
 
 
@@ -368,27 +366,26 @@ class WriterObs(NavegadorObs):
 
         ### Paso 1: Reemplazar sección anterior
         # Darle click al lápiz
-        try:
-            await self.click_selector('i.fa-pencil')
-            # Apagar la subsección y guardar
-            await self.page.evaluate('document.querySelector("#switch1").click()')
-            await self.click_selector('button.btn.btn-outline-primary.btn-block')
-        except Exception:
-            # Si no hay una sección creada para borrar, se ignora este paso
-            pass
+        # try:
+        #     await self.click_selector('i.fa-pencil')
+        #     # Apagar la subsección y guardar
+        #     await self.page.evaluate('document.querySelector("#switch1").click()')
+        #     await self.click_selector('button[type="submit"]')
+        # except Exception:
+        #     # Si no hay una sección creada para borrar, se ignora este paso
+        #     pass
 
-        # Crear nueva subsección
-        await self.click_selector('a.btn-add')
+        # # Crear nueva subsección
+        # await self.click_selector('a.btn-add')
 
-        # Colocar orden 1 y guardar
-        await self.llenar_campo('input[formcontrolname="order"]', str("1"))
-        await self.page.evaluate('document.querySelector("#switch1").click()')
-        await self.click_selector('button.btn.btn-outline-primary.btn-block')
-        await self.page.wait_for_timeout(self.timeout*2)
+        # # Colocar orden 1 y guardar
+        # await self.llenar_campo('input[formcontrolname="order"]', str("1"))
+        # await self.page.evaluate('document.querySelector("#switch1").click()')
+        # await self.click_selector('button[type="submit"]')
+        # await self.page.wait_for_timeout(self.timeout*2)
 
         # Darle click a las subsecciones
         await self.click_selector('i.fa-list')
-        
 
         ### Paso 2: Agregar el nuevo contenido
         # Eliminar el primer párrafo (el primer bloque de texto antes de un salto de línea)
@@ -400,25 +397,18 @@ class WriterObs(NavegadorObs):
 
         try:
             await self.llenar_campo('textarea[formcontrolname="textbox"]', texto_sin_primer_parrafo)
-            await self.page.wait_for_timeout(self.timeout*3)
 
-            # Esta parte me la dio Claude, he preferido dejarla así porque me tomó mucho encontrar un método
-            dialog_appeared = False
+            # Configurar el manejador de diálogo ANTES de hacer clic
+            async with self.page.expect_event("dialog") as event_info:
+                await self.page.click('button[type="submit"]')
             
-            def handle_dialog(dialog):
-                global dialog_appeared
-                print(f"Mensaje del diálogo: {dialog.message}")
-                dialog_appeared = True
-                dialog.accept()
-                
-            # Registrar el event listener para diálogos
-            try:
-                await self.page.on("dialog", handle_dialog)
-            except Exception as e:
-                print("Verificar si se aceptó el diálogo")
+            # Obtener y manejar el diálogo
+            dialog = await event_info.value
+            print(f"Mensaje del diálogo: {dialog.message}")
+            await dialog.accept()  # Aceptar el diálogo
 
             # Hacer clic en el botón
-            await self.click_selector('button.btn.btn-outline-primary.btn-block')
+            await self.click_selector('button[type="submit"]')
                     
             # Esperar un poco para asegurar que el diálogo sea manejado
             await self.page.wait_for_timeout(self.timeout*3)
@@ -439,14 +429,8 @@ class WriterObs(NavegadorObs):
         #         print("El lápiz de la primera fila no está visible.")
         #     # Cambiar el estado del switch usando JavaScript
         #     self.page.evaluate('document.querySelector("#switch1").click()')
-        #     self.page.click('button.btn.btn-outline-primary.btn-block')
+        #     self.page.click('button[type="submit"]')
         #     self.page.reload()
-
-        finally:
-            # Mantener el navegador abierto si algo falla
-            #input("Presiona Enter para cerrar el navegador...")
-            await self.page.remove_listener("dialog", handle_dialog)
-
 
 
         ################## MANEJO DE GRÁFICOS ####################
@@ -469,7 +453,7 @@ class WriterObs(NavegadorObs):
 
         # Obtener número de gráficos
         await self.page.wait_for_selector('tr.tbody-detail')
-        rows = await self.page.locator('tr.tbody-detail')
+        rows = self.page.locator('tr.tbody-detail')
         row_count = rows.count()
         
         # Paso 1: Usar la función desactivar_casillas 
@@ -498,7 +482,7 @@ class WriterObs(NavegadorObs):
             await self.page.evaluate('document.querySelector("#switch1").click()')
 
             # Guardar la casilla
-            await self.click_selector('button.btn.btn-outline-primary.btn-block')
+            await self.click_selector('button[type="submit"]')
 
             # Esperar a que se recargue la tabla antes de procesar la siguiente entrada
             await self.page.wait_for_selector('tr.tbody-detail', state='visible')
@@ -526,10 +510,10 @@ class WriterObs(NavegadorObs):
 
         # Esperamos que las filas estén disponibles en la página
         await self.page.wait_for_selector('tr.tbody-detail')
-        rows = await self.page.locator('tr.tbody-detail')
+        rows = self.page.locator('tr.tbody-detail')
 
         # Llamamos a la función que recopila el estado y desactiva/activa según el parámetro
-        self.desactivar_casillas_activadas(rows, desactivar)
+        await self.desactivar_casillas_activadas(rows, desactivar)
 
 
     async def agregar_referencias(self, codigo_ficha, referencias_limpias, omitir_inicio=False):
@@ -567,7 +551,7 @@ class WriterObs(NavegadorObs):
                 await self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
 
                 # Guardar cambios
-                await self.click_selector('button.btn.btn-outline-primary.btn-block')
+                await self.click_selector('button[type="submit"]')
                 await self.page.wait_for_selector('tr.tbody-detail', state='visible')  # Esperar recarga
 
             except Exception as e:
@@ -646,9 +630,9 @@ class WriterObs(NavegadorObs):
                     await self.llenar_campo('input[formcontrolname="urlsource"]', url_value)
 
                     # Hacer hover sobre el botón y luego clic
-                    save_button = self.page.locator('button.btn.btn-outline-primary.btn-block')
+                    save_button = self.page.locator('button[type="submit"]')
                     await save_button.hover()  # Hover sobre el botón
-                    await self.page.click('button.btn.btn-outline-primary.btn-block')
+                    await self.page.click('button[type="submit"]')
 
                     # Esperar a que la tabla se recargue antes de continuar
                     await self.page.wait_for_selector('tr.tbody-detail', state='visible')
@@ -675,7 +659,7 @@ class ReaderObs(NavegadorObs):
 
 
     # FUNCIONES PRINCIPALES
-    async def scrapear_ficha(self, codigo: str, territorial=False):
+    async def scrapear_ficha(self, codigo: str, territorial=False, estado: str = ""):
         """
         Extrae información de una ficha abierta.
 
@@ -708,17 +692,9 @@ class ReaderObs(NavegadorObs):
                 await self.page.evaluate("caches.keys().then(keys => keys.forEach(key => caches.delete(key)))")
                 await self.page.reload(wait_until="networkidle")
             self.info_fichas[codigo] = temp_dict
-                
 
-        # #Extraer "Estado"
-        # try:
-        #     estado_selector = 'input[formcontrolname="status"]'
-        #     await self.page.wait_for_selector(estado_selector)
-        #     estado = await self.page.locator(estado_selector).is_checked()
-        #     self.info_fichas[codigo]["estado"] = "Activo" if estado else "Inactivo"
-        # except Exception as e:
-        #     print(f"Error al extraer 'Estado': {e}")
-        #     self.info_fichas[codigo]["estado"] = "No disponible"
+        # Extraer "Estado"
+        self.info_fichas[codigo]["estado"] = estado
 
         # Extraer "Temática"
         try:
@@ -746,23 +722,16 @@ class ReaderObs(NavegadorObs):
                 self.info_fichas[codigo]["departamento"] = "No disponible"
 
 
-    async def obtener_datos(self, codigo_ficha, territorial=False):
+    async def obtener_datos(self, codigo_ficha: str, territorial=False, estado:str=""):
         """
         Procesa una ficha individualmente.
         """
-        # Por lo general omitir_inicio = True, ya que se busca obtener de todas las fichas
         try:
-            # if not omitir_inicio:
-            #     rubro, subrubro = self.identificar_rubro_y_subrubro(codigo_ficha)
-            #     if not rubro or not subrubro:
-            #         raise ValueError(f"No se encontró rubro/subrubro para {codigo_ficha}")
-            #     await self.seleccionar_rubro_y_subrubro(self, rubro, subrubro)
-
             # Hacer clic en el lápiz para ver la metadata de la ficha (orden 5)
             await self.seleccionar_icono(codigo_ficha, 5) 
 
             # Obtenemos y guardamos la info de una ficha
-            await self.scrapear_ficha(codigo_ficha, territorial=territorial)
+            await self.scrapear_ficha(codigo_ficha, territorial=territorial, estado=estado)
             logging.info(f"Ficha {codigo_ficha} procesada exitosamente.")
         except Exception as e:
             # Detección de errores
@@ -779,13 +748,15 @@ class ReaderObs(NavegadorObs):
         try:
             await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
             await self.page.wait_for_selector('tr.tbody-detail')
-            await self.page.wait_for_timeout(500)
+            await self.page.wait_for_timeout(self.timeout*10)
             filas = self.page.locator('tr.tbody-detail')
             total_filas = await filas.count()
             if not rubro in ["Megatendencias", "Fuerzas primarias"]:
                 print(f"Se extraerá información de {total_filas} fichas de {subrubro}")
 
-            for i in range(total_filas):
+            indices_aleatorios = list(range(total_filas))
+            random.shuffle(indices_aleatorios)
+            for i in indices_aleatorios:
                 try:
                     # Navegar a la página del subrubro
                     if subrubro != "Tendencia nacional":
@@ -795,15 +766,15 @@ class ReaderObs(NavegadorObs):
                     # Obtener el código de la ficha
                     fila = filas.nth(i)
                     codigo_ficha = (await fila.locator('td').nth(1).inner_text()).strip()
-                    #print(f"Este es el código_ficha obtenido: {codigo_ficha}")
+                    estado = (await fila.locator('td').nth(6).inner_text()).strip()
 
                     # Procesar la ficha
-                    await self.obtener_datos(codigo_ficha, territorial=territorial)
+                    await self.obtener_datos(codigo_ficha, territorial=territorial, estado=estado)
                 except Exception as e:
-                    print(f"Error procesando fila {i}: {e}")
+                    logging.error(f"Error procesando fila {i}: {e}")
                     #await self.page.reload(wait_until="networkidle")
         except Exception as e:
-            print(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
+            logging.critical(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
 
 
     async def guardar_resultados(self):
@@ -826,7 +797,7 @@ class ReaderObs(NavegadorObs):
         datos_existentes.update(self.info_fichas)
         with open(archivo_info, 'w', encoding='utf-8') as json_file:
             json.dump(datos_existentes, json_file, indent=4, ensure_ascii=False)
-        logging.error(f"Información actualizada y guardada en {archivo_info}")
+        logging.info(f"Información actualizada y guardada en {archivo_info}")
 
         # Limpiar los datos procesados en la sesión actual para evitar duplicados
         self.info_fichas = {}
