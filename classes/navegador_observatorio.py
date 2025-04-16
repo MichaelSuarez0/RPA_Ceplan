@@ -1,4 +1,5 @@
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Locator
+from tqdm.asyncio import tqdm
 import re
 from datetime import datetime
 from dotenv import load_dotenv
@@ -6,6 +7,7 @@ import os
 import json
 import logging
 import random
+from observatorio_ceplan import Observatorio
 
 # Credenciales
 load_dotenv()
@@ -17,6 +19,7 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 ruta_dict = os.path.join(script_dir, "..", "datasets", "rubros_subrubros.json")
 directorio_salida = os.path.abspath(os.path.join(script_dir, "..", "datasets"))  # Subcarpeta 'datasets'
 log_path = os.path.join(script_dir, "..", "logs", "obtener_metadata.log")
+observatorio = Observatorio()
 
 # Configuración básica del logging
 logging.basicConfig(
@@ -127,7 +130,7 @@ class NavegadorObs():
             raise ValueError(f"No se encontró un rubro o subrubro para el código de ficha: {codigo_ficha}")
 
         # Imprimir el rubro y subrubro encontrados
-        print(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
+        logging.info(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
 
         # Seleccionar el rubro
         try:
@@ -138,28 +141,17 @@ class NavegadorObs():
             await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
             await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
         except TimeoutError:
-            try:
-                await self.page.reload(wait_until="networkidle")
+            await self.page.context.clear_cookies()
+            await self.page.reload(wait_until="networkidle")
 
-                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
-                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+            await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+            await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
 
-                # Seleccionar el subrubro
-                await self.page.wait_for_selector('a.col-sm-3.btn-org')
-                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")', timeout=10000)
-            except TimeoutError:
-                print("⚠️ Error persistente, limpiando caché y cookies...")
-                await self.page.context.clear_cookies()
-                await self.page.evaluate("caches.keys().then(keys => keys.forEach(key => caches.delete(key)))")
-
-                await self.page.reload(wait_until="networkidle")
-
-                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
-                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
-
-                await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
-                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
-
+            # Seleccionar el subrubro
+            await self.page.wait_for_selector('a.col-sm-3.btn-org')
+            await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")', timeout=10000)
+        except Exception as e:
+            logging.error(f"Se encontró una excepción al intentar hacer click en los subrubros: {e}")
         
 
     async def seleccionar_icono(self, codigo_ficha, orden):
@@ -241,7 +233,7 @@ class WriterObs(NavegadorObs):
         await self.page.locator(selector).click()
         await self.page.wait_for_timeout(self.timeout)
 
-    async def desactivar_casillas_activadas(self, rows, desactivar=True):
+    async def desactivar_casillas_activadas(self, rows: Locator, desactivar=True):
         """
         Desactiva las casillas activadas según el parámetro 'desactivar'.
 
@@ -306,7 +298,7 @@ class WriterObs(NavegadorObs):
     
         
          ################ INSERTAR TEXTO ACTUALIZADO ##################
-    async def actualizar_sumilla(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
+    async def actualizar_sumilla(self, codigo_ficha: str, texto_con_hipervínculos: str):
         """
         Actualiza la sumilla de una ficha y modifica la fecha de actualización en la interfaz.
 
@@ -722,21 +714,18 @@ class ReaderObs(NavegadorObs):
                 self.info_fichas[codigo]["departamento"] = "No disponible"
 
 
-    async def obtener_datos(self, codigo_ficha: str, territorial=False, estado:str=""):
+    async def obtener_datos(self, codigo_ficha: str, territorial=False, estado: str=""):
         """
         Procesa una ficha individualmente.
         """
         try:
-            # Hacer clic en el lápiz para ver la metadata de la ficha (orden 5)
             await self.seleccionar_icono(codigo_ficha, 5) 
-
-            # Obtenemos y guardamos la info de una ficha
             await self.scrapear_ficha(codigo_ficha, territorial=territorial, estado=estado)
-            logging.info(f"Ficha {codigo_ficha} procesada exitosamente.")
         except Exception as e:
             # Detección de errores
-            logging.error(f"{codigo_ficha}: {e}")
+            logging.error(f"Error procesando la ficha '{codigo_ficha}': {e}")
             await self.page.reload(wait_until="networkidle")
+            await self.page.wait_for_timeout(10000)
         finally:
             await self.volver_a_inicio()
 
@@ -747,8 +736,6 @@ class ReaderObs(NavegadorObs):
         """
         try:
             await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
-            await self.page.wait_for_selector('tr.tbody-detail')
-            await self.page.wait_for_timeout(self.timeout*10)
             filas = self.page.locator('tr.tbody-detail')
             total_filas = await filas.count()
             if not rubro in ["Megatendencias", "Fuerzas primarias"]:
@@ -756,23 +743,34 @@ class ReaderObs(NavegadorObs):
 
             indices_aleatorios = list(range(total_filas))
             random.shuffle(indices_aleatorios)
-            for i in indices_aleatorios:
-                try:
-                    # Navegar a la página del subrubro
-                    if subrubro != "Tendencia nacional":
-                        await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
-                    await self.page.wait_for_selector('tr.tbody-detail')
+            
+            # Barra de progreso
+            with tqdm(
+                indices_aleatorios,
+                desc=f"Procesando {subrubro}",
+                unit="ficha",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] | Código: {postfix[0]}",
+                postfix=["-", "-"]  # Valores iniciales
+            ) as pbar:
+                for i in pbar:
+                    try:
+                        # Navegar a la página del subrubro
+                        if subrubro != "Tendencia nacional":
+                            await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
 
-                    # Obtener el código de la ficha
-                    fila = filas.nth(i)
-                    codigo_ficha = (await fila.locator('td').nth(1).inner_text()).strip()
-                    estado = (await fila.locator('td').nth(6).inner_text()).strip()
+                        # Obtener el código de la ficha
+                        fila = filas.nth(i)
+                        codigo_ficha = (await fila.locator('td').nth(1).inner_text()).strip()
+                        estado = (await fila.locator('td').nth(6).inner_text()).strip()
+                        
+                        # Actualizar barra con información en tiempo real
+                        pbar.postfix[0] = codigo_ficha
+                        pbar.refresh()
 
-                    # Procesar la ficha
-                    await self.obtener_datos(codigo_ficha, territorial=territorial, estado=estado)
-                except Exception as e:
-                    logging.error(f"Error procesando fila {i}: {e}")
-                    #await self.page.reload(wait_until="networkidle")
+                        # Procesar la ficha
+                        await self.obtener_datos(codigo_ficha, territorial=territorial, estado=estado)
+                    except Exception as e:
+                        logging.error(f"Ficha {i}: {str(e)[:100]}... (Código: {codigo_ficha if 'codigo_ficha' in locals() else 'N/A'})")
         except Exception as e:
             logging.critical(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
 
