@@ -1,0 +1,6 @@
+datawrapper==0.6.1
+icecream==2.1.3
+pandas==2.2.3
+playwright==1.49.0
+python-dotenv==1.0.1
+Requests==2.32.3
