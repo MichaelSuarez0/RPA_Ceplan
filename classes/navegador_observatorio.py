@@ -1,5 +1,5 @@
-from playwright.async_api import async_playwright, Locator
-from tqdm.asyncio import tqdm
+from tqdm.asyncio import tqdm_asyncio
+from playwright.async_api import async_playwright
 import re
 from datetime import datetime
 from dotenv import load_dotenv
@@ -7,7 +7,7 @@ import os
 import json
 import logging
 import random
-from observatorio_ceplan import Observatorio
+from tqdm import tqdm
 
 # Credenciales
 load_dotenv()
@@ -19,7 +19,6 @@ script_dir = os.path.abspath(os.path.dirname(__file__))
 ruta_dict = os.path.join(script_dir, "..", "datasets", "rubros_subrubros.json")
 directorio_salida = os.path.abspath(os.path.join(script_dir, "..", "datasets"))  # Subcarpeta 'datasets'
 log_path = os.path.join(script_dir, "..", "logs", "obtener_metadata.log")
-observatorio = Observatorio()
 
 # Configuración básica del logging
 logging.basicConfig(
@@ -130,7 +129,7 @@ class NavegadorObs():
             raise ValueError(f"No se encontró un rubro o subrubro para el código de ficha: {codigo_ficha}")
 
         # Imprimir el rubro y subrubro encontrados
-        logging.info(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
+        print(f"Rubro encontrado: {rubro_encontrado}, Subrubro encontrado: {subrubro_encontrado}")
 
         # Seleccionar el rubro
         try:
@@ -141,17 +140,28 @@ class NavegadorObs():
             await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
             await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
         except TimeoutError:
-            await self.page.context.clear_cookies()
-            await self.page.reload(wait_until="networkidle")
+            try:
+                await self.page.reload(wait_until="networkidle")
 
-            await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
-            await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
 
-            # Seleccionar el subrubro
-            await self.page.wait_for_selector('a.col-sm-3.btn-org')
-            await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")', timeout=10000)
-        except Exception as e:
-            logging.error(f"Se encontró una excepción al intentar hacer click en los subrubros: {e}")
+                # Seleccionar el subrubro
+                await self.page.wait_for_selector('a.col-sm-3.btn-org')
+                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")', timeout=10000)
+            except TimeoutError:
+                print("⚠️ Error persistente, limpiando caché y cookies...")
+                await self.page.context.clear_cookies()
+                await self.page.evaluate("caches.keys().then(keys => keys.forEach(key => caches.delete(key)))")
+
+                await self.page.reload(wait_until="networkidle")
+
+                await self.page.wait_for_selector('li.btn-org[routerlinkactive="active"]', timeout=10000)
+                await self.page.click(f'li.btn-org:has-text("{rubro_encontrado}")')
+
+                await self.page.wait_for_selector('a.col-sm-3.btn-org', timeout=10000)
+                await self.page.click(f'a.col-sm-3.btn-org:has-text("{subrubro_encontrado}")')
+
         
 
     async def seleccionar_icono(self, codigo_ficha, orden):
@@ -233,7 +243,7 @@ class WriterObs(NavegadorObs):
         await self.page.locator(selector).click()
         await self.page.wait_for_timeout(self.timeout)
 
-    async def desactivar_casillas_activadas(self, rows: Locator, desactivar=True):
+    async def desactivar_casillas_activadas(self, rows, desactivar=True):
         """
         Desactiva las casillas activadas según el parámetro 'desactivar'.
 
@@ -298,7 +308,7 @@ class WriterObs(NavegadorObs):
     
         
          ################ INSERTAR TEXTO ACTUALIZADO ##################
-    async def actualizar_sumilla(self, codigo_ficha: str, texto_con_hipervínculos: str):
+    async def actualizar_sumilla(self, codigo_ficha, texto_con_hipervínculos, timeout=50):
         """
         Actualiza la sumilla de una ficha y modifica la fecha de actualización en la interfaz.
 
@@ -722,57 +732,81 @@ class ReaderObs(NavegadorObs):
             await self.seleccionar_icono(codigo_ficha, 5) 
             await self.scrapear_ficha(codigo_ficha, territorial=territorial, estado=estado)
         except Exception as e:
-            # Detección de errores
-            logging.error(f"Error procesando la ficha '{codigo_ficha}': {e}")
             await self.page.reload(wait_until="networkidle")
-            await self.page.wait_for_timeout(10000)
         finally:
             await self.volver_a_inicio()
 
 
-    async def scrapear_fichas(self, rubro, subrubro= None, territorial=False):
+    async def scrapear_fichas(self, rubro, subrubro=None, territorial=False):
         """
-        Procesa todas las fichas dentro de un rubro
+        Procesa todas las fichas dentro de un rubro con barra de progreso tqdm.
+        Thanks Claude for the progress bar
         """
         try:
+            # Seleccionar rubro y subrubro
             await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
+            
+            # Esperar a que las fichas aparezcan
+            await self.page.wait_for_selector('tr.tbody-detail')
+            
+            # Obtener todas las filas
             filas = self.page.locator('tr.tbody-detail')
             total_filas = await filas.count()
+            
             if not rubro in ["Megatendencias", "Fuerzas primarias"]:
                 print(f"Se extraerá información de {total_filas} fichas de {subrubro}")
-
+            
+            # Generar índices aleatorios
             indices_aleatorios = list(range(total_filas))
             random.shuffle(indices_aleatorios)
             
-            # Barra de progreso
-            with tqdm(
-                indices_aleatorios,
-                desc=f"Procesando {subrubro}",
-                unit="ficha",
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] | Código: {postfix[0]}",
-                postfix=["-", "-"]  # Valores iniciales
-            ) as pbar:
-                for i in pbar:
-                    try:
-                        # Navegar a la página del subrubro
-                        if subrubro != "Tendencia nacional":
-                            await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
-
-                        # Obtener el código de la ficha
-                        fila = filas.nth(i)
-                        codigo_ficha = (await fila.locator('td').nth(1).inner_text()).strip()
-                        estado = (await fila.locator('td').nth(6).inner_text()).strip()
-                        
-                        # Actualizar barra con información en tiempo real
-                        pbar.postfix[0] = codigo_ficha
-                        pbar.refresh()
-
-                        # Procesar la ficha
-                        await self.obtener_datos(codigo_ficha, territorial=territorial, estado=estado)
-                    except Exception as e:
-                        logging.error(f"Ficha {i}: {str(e)[:100]}... (Código: {codigo_ficha if 'codigo_ficha' in locals() else 'N/A'})")
+            # Procesar fichas con barra de progreso
+            procesadas = 0
+            fallidas = 0
+            
+            # Usar tqdm para mostrar el progreso
+            for i in tqdm_asyncio(indices_aleatorios, desc=f"Procesando fichas de {subrubro or rubro}"):
+                try:
+                    # Reseleccionar rubro y subrubro para cada ficha
+                    await self.seleccionar_rubro_y_subrubro(rubro, subrubro)
+                    
+                    # Esperar a que las fichas se carguen después de la navegación
+                    await self.page.wait_for_selector('tr.tbody-detail')
+                    
+                    # Obtener filas actualizadas
+                    filas_actuales = self.page.locator('tr.tbody-detail')
+                    total_actual = await filas_actuales.count()
+                    
+                    if i >= total_actual:
+                        logging.warning(f"Índice {i} fuera de rango. Hay {total_actual} filas disponibles")
+                        fallidas += 1
+                        continue
+                    
+                    # Seleccionar la fila específica
+                    fila = filas_actuales.nth(i)
+                    
+                    # Obtener el código de la ficha de manera más robusta
+                    codigo_ficha = await fila.locator('td').nth(1).evaluate('node => node.innerText.trim()')
+                    estado = await fila.locator('td').nth(6).evaluate('node => node.innerText.trim()')
+                
+                    # Procesar la ficha
+                    await self.obtener_datos(codigo_ficha, territorial=territorial, estado=estado)
+                    procesadas += 1
+                    
+                except Exception as e:
+                    codigo = codigo_ficha if 'codigo_ficha' in locals() else "desconocido"
+                    logging.error(f"Error procesando fila {i} (código {codigo}): {str(e)}")
+                    fallidas += 1
+                    await self.page.wait_for_timeout(3000)  # Esperar un poco antes de continuar
+            
+            # Resumen final
+            logging.info(f"Procesamiento completado para {subrubro or rubro}: {procesadas} fichas procesadas, {fallidas} fallidas")
+            
         except Exception as e:
-            logging.critical(f"Error procesando todas las fichas del subrubro {subrubro}: {e}")
+            logging.critical(f"Error crítico procesando fichas del subrubro {subrubro}: {str(e)}")
+            # Guardar resultados parciales si hay alguno
+            if hasattr(self, 'info_fichas') and len(self.info_fichas) > 0:
+                await self.guardar_resultados()
 
 
     async def guardar_resultados(self):
